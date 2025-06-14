@@ -1,0 +1,7 @@
+# TwiNailz.AI - Virtual Environments and Cache
+venv/
+.venv/
+__pycache__/
+*.pyc
+.env
+*.log
