@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-TwiNailz.AI - Advanced Nail Care AI Bot
-"""
+"""TwiNailz.AI - Advanced Nail Care AI Bot"""
 
 import asyncio
 import logging
 import os
 import sys
+
+# Load environment variables FIRST
+from dotenv import load_dotenv
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -15,13 +17,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Bot configuration
-try:
-    from config import BOT_TOKEN
-except ImportError:
-    BOT_TOKEN = os.getenv("BOT_TOKEN", "your-bot-token-here")
-    logger.warning("config.py not found, using environment variable")
-
+# Bot configuration - Use environment variable directly
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not BOT_TOKEN:
+    logger.error("TELEGRAM_BOT_TOKEN not found in .env file")
+    sys.exit(1)
+logger.info("Using BOT_TOKEN from environment variables")
 # Try importing telegram bot
 try:
     from telegram import Update
@@ -38,6 +39,14 @@ except ImportError:
     )
     sys.exit(1)
 
+from openai_handler import TwiNailzAI
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+# Add this temporary debug line after load_dotenv()
+print(f"DEBUG: Bot token loaded: {os.getenv('TELEGRAM_BOT_TOKEN')[:10]}..." if os.getenv('TELEGRAM_BOT_TOKEN') else "DEBUG: No bot token found")
+
 
 class TwiNailzBot:
     """Main bot class for TwiNailz.AI"""
@@ -45,6 +54,7 @@ class TwiNailzBot:
     def __init__(self, token: str):
         self.token = token
         self.application = None
+        self.nail_ai = TwiNailzAI()
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
@@ -103,71 +113,80 @@ What specific nail concern can I help you with?
         await update.message.reply_text(advice.strip())
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle regular text messages"""
+        """Handle regular text messages with AI"""
         if update.message and update.message.text:
-            user_message = update.message.text.lower()
+            user_message = update.message.text
+        
+            # Show typing indicator
+            await update.message.reply_chat_action("typing")
+        
+            try:
+                # Get AI response
+                response = self.nail_ai.get_nail_recommendation(user_message)
+                await update.message.reply_text(f"💅 {response}")
+            except Exception as e:
+                # Fallback to basic response
+                if any(word in user_message.lower() for word in ["help", "advice", "tips"]):
+                    await self.advice_command(update, context)
+                else:
+                    response = f"Thanks for your message! I'm TwiNailz.AI 💅\n\nUse /help to see what I can do for you!"
+                    await update.message.reply_text(response)
 
-            if any(word in user_message for word in ["help", "advice", "tips"]):
-                await self.advice_command(update, context)
-            else:
-                response = f"Thanks for your message! I'm TwiNailz.AI 💅\n\nUse /help to see what I can do for you!"
-                await update.message.reply_text(response)
+    async def trends_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /trends command with AI"""
+        if not update.message:
+            return
+    
+        await update.message.reply_text("🔍 Getting the latest nail trends for you...")
+    
+        try:
+            trends = self.nail_ai.get_nail_trends()
+            await update.message.reply_text(f"✨ Current Nail Trends:\n\n{trends}")
+        except Exception as e:
+            await update.message.reply_text("Sorry, I couldn't get trends right now. Please try again later!")
 
     def setup_handlers(self):
         """Setup command and message handlers"""
         if not self.application:
             return
-
         # Add command handlers
         self.application.add_handler(CommandHandler("start", self.start_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("advice", self.advice_command))
-
+        self.application.add_handler(CommandHandler("trends", self.trends_command))
         # Add message handler
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )
 
-    async def run(self):
+    def run(self):
         """Run the bot"""
         try:
             # Create application
             self.application = Application.builder().token(self.token).build()
-
+        
             # Setup handlers
             self.setup_handlers()
-
+        
             logger.info("Starting TwiNailz.AI Bot...")
-
-            # Start the bot
-            await self.application.initialize()
-            await self.application.start()
-            await self.application.updater.start_polling(
-                allowed_updates=Update.ALL_TYPES
-            )
-
             logger.info("Bot is running! Press Ctrl+C to stop.")
-
-            # Keep running
-            await self.application.updater.idle()
-
+        
+            # Start the bot with polling (this handles all the async stuff)
+            self.application.run_polling(allowed_updates=Update.ALL_TYPES)
+        
         except Exception as e:
             logger.error(f"Error running bot: {e}")
-        finally:
-            if self.application:
-                await self.application.stop()
 
 
 def main():
     """Main function"""
-    if not BOT_TOKEN or BOT_TOKEN == "your-bot-token-here":
-        logger.error("Please set your BOT_TOKEN in config.py or environment variable")
+    if not BOT_TOKEN:
+        logger.error("BOT_TOKEN not found")
         return
-
+    
     bot = TwiNailzBot(BOT_TOKEN)
-
     try:
-        asyncio.run(bot.run())
+        bot.run()
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:
