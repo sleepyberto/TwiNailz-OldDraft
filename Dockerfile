@@ -1,7 +1,11 @@
-FROM alpine:latest
+FROM python:3.11-slim-buster
 
 WORKDIR /app
 
-ADD . /app
+COPY . /app
 
-ENTRYPOINT [ "test_openai.py" ]
+RUN pip install --upgrade pip
+
+RUN pip install -r /app/requirements.txt 
+
+CMD [ "python", "test_openai.py" ]
